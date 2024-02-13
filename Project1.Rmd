@@ -1,0 +1,592 @@
+---
+title: "Project1"
+author: "Chaitanya Singh"
+date: "2023-10-27"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Intro and Problem 
+- I would be using dataset which contains the prices of Boston properties and their characteristics
+- This dataset contains 14 features and 107 quantities. 
+- We will try to model this data set through regression and machine learning techniques.
+- Question: Given sample data, can we predict the prices of the Boston housing in the recent times with some input variables.
+
+# Loading Libraries 
+```{r, message=FALSE}
+library(ggplot2)
+library(caret)
+library(dplyr)
+library(car)
+library(matrixStats)
+library(arrayhelpers)
+library(corrplot)
+library(gplots)
+library(ggpubr)
+library(GGally)
+library(quantreg)
+library(e1071)
+library(foreign)
+library(ROCR)
+library(stats)
+source("boston_vals.R")
+```
+
+# Loading the data
+```{r, warning=FALSE}
+boston_data = read.csv("boston.csv")
+sum(is.na(boston_data))
+```
+
+# Data Exploration 
+```{r, warning=FALSE}
+colNames <- colnames(boston_data)
+data <- data.frame(boston_data)
+colnames(data) <- colNames
+```
+
+
+```{r, warning=FALSE}
+data <- data[, !(colnames(data) %in% c('MEDV', 'id'))]
+
+data$PRICE <- boston_data$MEDV
+
+head(data)
+tail(data)
+str(data)
+```
+# Visualising Data - Histogram, Distributions and Bar Charts
+```{r, warning=FALSE}
+#Histrogram of Prices
+par(mar = c(5, 4, 4, 2))
+hist(data$PRICE, breaks = 50, col = "#2196f3", border = "black", xlab = "Price in '000s", ylab = "No. of Houses", main = "Histogram of Price")
+```
+```{r, warning=FALSE}
+#Average number of Rooms
+par(mar = c(5, 4, 4, 2))
+hist(data$RM, col = "#00796b", border = "black", xlab = "Avg Number of Rooms", ylab = "No. of Houses", main = "Histogram of Avg Number of Rooms")
+```
+```{r, warning=FALSE}
+#Accessibility to Highways
+par(mfrow=c(1,1))
+options(repr.plot.width=10, repr.plot.height=6)
+hist(data$RAD, breaks=24, col='#7b1fa2', border='black', main='Accessibility to Highways', xlab='Accessibility to Highways', ylab='No. of Houses')
+```
+# Descriptive Statistics
+```{r, warning=FALSE}
+min_values <- apply(data, 2, min)
+max_values <- apply(data, 2, max)
+mean_values <- apply(data, 2, mean)
+median_values <- apply(data, 2, median)
+summary_data <- data.frame(
+  Min = min_values,
+  Max = max_values,
+  Mean = mean_values,
+  Median = median_values
+)
+print(summary_data)
+```
+# Correlation
+$$\rho xy = corr(X,Y)$$
+$$-1.0 \leq \rho xy \leq +1.0$$
+```{r, warning=FALSE}
+cor(data$PRICE, data$RM)
+cor(data$PRICE, data$PTRATIO)
+cor(data)
+```
+```{r, warning=FALSE}
+# Calculate the correlation matrix
+corr_matrix <- cor(data)
+
+# Create a mask to hide the upper triangle
+par(mar = c(1, 1, 1, 1))
+
+# Calculate the correlation matrix
+corr_matrix <- cor(data)
+
+# Create a mask to hide the upper triangle
+mask <- matrix(0, nrow = ncol(corr_matrix), ncol = ncol(corr_matrix))
+mask[upper.tri(corr_matrix)] <- 1
+
+# Create a heatmap with a legend
+corrplot(corr_matrix, method = "color", col = colorRampPalette(c("#7b1fa2", "#2196f3"))(100),
+         addCoef.col = "black", number.cex = 0.6, tl.cex = 0.6,
+         title = "Correlation Heatmap", mar = c(0, 0, 2, 0))
+```
+```{r, warning=FALSE}
+nox_dis_corr <- round(cor(data$NOX, data$DIS), 3)
+
+# Create the scatter plot
+scatter_plot <- ggplot(data, aes(x = DIS, y = NOX)) +
+  geom_point(aes(color = NOX), size = 4, alpha = 0.6) +
+  labs(
+    title = paste("DIS vs NOX (Correlation", nox_dis_corr, ")"),
+    x = "DIS - Distance from Employment",
+    y = "NOX - Nitric Oxide Pollution"
+  ) +
+  theme_minimal()
+
+# Display the plot
+print(scatter_plot)
+```
+```{r, warning=FALSE}
+p <- ggplot(data, aes(x = TAX, y = RAD)) +
+  geom_point(alpha = 0.5, color = "blue") +  # Change the color to blue or any other valid color
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(
+    title = "TAX vs RAD",
+    x = "TAX",
+    y = "RAD"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Display the plot
+print(p)
+```
+# Training and Test Dataset Spilt
+```{r, warning=FALSE}
+# Set a random seed for reproducibility
+set.seed(10)
+
+# Split the data into training and test sets
+splitIndex <- createDataPartition(data$PRICE, p = 0.8, list = FALSE, times = 1)
+train_data <- data[splitIndex, ]
+test_data <- data[-splitIndex, ]
+
+# Calculate the percentage of the training set
+percentage_train <- nrow(train_data) / nrow(data)
+
+# Calculate the percentage of the test set
+percentage_test <- nrow(test_data) / nrow(data)
+
+print(percentage_train)  # Print the percentage of the training set
+print(percentage_test)   # Print the percentage of the test set
+```
+# Multivariable Regression 
+```{r, warning=FALSE}
+regr <- lm(PRICE ~ ., data = train_data)
+
+# Print the intercept and coefficients
+cat("Intercept:", regr$coefficients[1], "\n")
+coefficients_df <- data.frame(Coefficient = names(coef(regr)), Value = coef(regr))
+print(coefficients_df)
+
+# Calculate R-squared for training data
+predicted_train <- predict(regr, newdata = train_data)
+r_squared_train <- 1 - sum((train_data$PRICE - predicted_train)^2) / sum((train_data$PRICE - mean(train_data$PRICE))^2)
+cat("Training data R-squared:", r_squared_train, "\n")
+
+# Calculate R-squared for test data
+predicted_test <- predict(regr, newdata = test_data)
+r_squared_test <- 1 - sum((test_data$PRICE - predicted_test)^2) / sum((test_data$PRICE - mean(test_data$PRICE))^2)
+cat("Test data R-squared:", r_squared_test, "\n")
+```
+# Data Transformation 
+```{r, warning=FALSE}
+skewness <- skewness(data$PRICE)
+print(paste("Skewness of PRICE:", skewness))
+```
+```{r, warning=FALSE}
+y_log <- log(data$PRICE)
+tail(y_log)
+skewness(y_log)
+```
+```{r, warning=FALSE}
+# Load the e1071 package
+library(e1071)
+
+# Create a density plot of y_log
+density_plot <- density(y_log, na.rm = TRUE)
+
+# Calculate skewness
+skewness_value <- skewness(y_log, na.rm = TRUE)
+
+# Plot the density plot with skewness in the title
+plot(density_plot, main = paste("Log Price with skew", round(skewness_value, 2)))
+
+```
+```{r, warning=FALSE}
+scatter_plot <- ggplot(data, aes(x = LSTAT, y = PRICE)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", formula = y ~ x, color = "darkred") +
+  theme_minimal() +
+  labs(title = "Scatter Plot with Regression Line", x = "LSTAT", y = "PRICE")
+
+# Display the plot
+print(scatter_plot)
+```
+```{r, warning=FALSE}
+transformed_data <- data
+transformed_data$LOG_PRICE <- y_log
+
+# Create a scatter plot with a regression line
+scatter_plot <- ggplot(transformed_data, aes(x = LSTAT, y = LOG_PRICE)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", formula = y ~ x, color = "cyan") +
+  theme_minimal() +
+  labs(title = "Scatter Plot with Regression Line", x = "LSTAT", y = "LOG_PRICE")
+
+# Display the plot
+print(scatter_plot)
+```
+# Regression Using Log Prices
+```{r, warning=FALSE}
+# Install and load necessary libraries if not already installed
+if (!require(caret)) {
+  install.packages("caret")
+  library(caret)
+}
+
+if (!require(ROCR)) {
+  install.packages("ROCR")
+  library(ROCR)
+}
+
+# Calculate log prices and separate features and target variable
+prices <- log(data$PRICE)  # Use log prices
+features <- data[, !colnames(data) %in% c("PRICE")]
+
+# Split the data into training and test sets
+set.seed(10)  # Set a random seed for reproducibility
+trainIndex <- createDataPartition(prices, p = 0.8, list = FALSE)
+X_train <- features[trainIndex, ]
+X_test <- features[-trainIndex, ]
+y_train <- prices[trainIndex]
+y_test <- prices[-trainIndex]
+
+# Fit a linear regression model
+regr <- lm(y_train ~ ., data = X_train)
+
+# Print R-squared values
+training_r_squared <- 1 - sum((y_train - predict(regr, X_train))^2) / sum((y_train - mean(y_train))^2)
+test_r_squared <- 1 - sum((y_test - predict(regr, X_test))^2) / sum((y_test - mean(y_test))^2)
+
+cat(paste("Training data R-squared: ", round(training_r_squared, 4), "\n"))
+cat(paste("Test data R-squared: ", round(test_r_squared, 4), "\n"))
+
+# Print the intercept and coefficients
+cat(paste("Intercept: ", round(coef(regr)[1], 4), "\n"))
+coef_df <- data.frame(coef(regr)[-1])  # Exclude the intercept
+colnames(coef_df) <- c("coef")
+rownames(coef_df) <- colnames(X_train)
+print(coef_df)
+```
+```{r, warning=FALSE}
+data <- cbind(y_train, X_train)
+
+# Fit a linear regression model
+lm_model <- lm(y_train ~ ., data = data)
+
+# Extract coefficients and p-values
+coefficients <- summary(lm_model)$coefficients
+p_values <- round(coefficients[, "Pr(>|t|)"], 3)
+
+# Create a data frame to store coefficients and p-values
+coef_p_values <- data.frame(Coefficient = coefficients[, "Estimate"], `P-Value` = p_values)
+
+# Print the data frame
+print(coef_p_values)
+```
+# Testing for Multicollinearity
+$$TAX = \alpha_0 + \alpha_1RM + \alpha_2NOX + ... + \alpha_{12} LSTAT$$
+$$VIF_{TAX} = \frac{1}{1-R^2_{TAX}}$$
+```{r, warning=FALSE}
+vif_results <- NULL
+for (var in colnames(data)) {
+  if (is.numeric(data[[var]])) {
+    vif_val <- vif(lm(data[[var]] ~ ., data = data))
+    vif_results <- cbind(vif_results, var = vif_val)
+  }
+}
+print(vif_results)
+```
+```{r, warning=FALSE}
+# Assuming your dataframe is named 'data'
+vif_values <- numeric(length = ncol(data))
+
+for (i in 1:ncol(data)) {
+  if (is.numeric(data[, i])) {
+    lm_fit <- lm(data[, i] ~ ., data = data)
+    vif_val <- 1 / (1 - summary(lm_fit)$r.squared)
+    vif_values[i] <- vif_val
+  }
+}
+
+# Printing the VIF values
+cat("Variable VIF\n")
+for (i in 1:ncol(data)) {
+  if (is.numeric(data[, i])) {
+    cat(paste(names(data)[i], vif_values[i], "\n"))
+  }
+}
+
+```
+```{r, warning=FALSE}
+# Assuming your dataframe is named 'data'
+
+# Initialize an empty vector to store VIF values
+vif <- numeric(ncol(data))
+
+# Loop through each column
+for (i in 1:ncol(data)) {
+  if (is.numeric(data[, i])) {
+    lm_fit <- lm(data[, i] ~ ., data = data)
+    vif_val <- 1 / (1 - summary(lm_fit)$r.squared)
+    vif[i] <- vif_val
+  }
+}
+
+# Print the VIF values
+print(vif)
+```
+# Model Simplification & the BIC
+```{r, warning=FALSE}
+X_incl_constant <- cbind(Intercept = 1, X_train)
+
+# Fit a linear regression model
+model <- lm(y_train ~ ., data = X_incl_constant)
+
+# Get the summary of the model
+summary_model <- summary(model)
+
+# Extract the coefficients and p-values
+coef <- coef(model)
+p_values <- summary_model$coefficients[, "Pr(>|t|)"]
+
+# Check if the number of coefficients matches the number of p-values
+if (length(coef) == length(p_values)) {
+  # Create a data frame with coefficients and p-values
+  org_coef <- data.frame(coef = coef, p_values = round(p_values, 3))
+} else {
+  cat("Error: Number of coefficients and p-values do not match.")
+}
+
+# Calculate BIC
+n <- nrow(X_incl_constant)
+k <- length(coef)
+residuals <- summary_model$residuals
+bic <- n * log(sum(residuals^2) / n) + k * log(n)
+cat("BIC is:", bic, "\n")
+
+# Calculate R-squared
+r_squared <- summary_model$r.squared
+cat("R-squared is:", r_squared, "\n")
+```
+```{r, warning=FALSE}
+# Create the feature matrix for the reduced model (excluding INDUS)
+model <- lm(y_train ~ . - INDUS, data = X_train)
+
+# Get the model coefficients and p-values
+coefficients <- coef(model)
+p_values <- summary(model)$coefficients[, "Pr(>|t|)"]
+
+# Calculate the BIC (Bayesian Information Criterion) and R-squared
+bic <- BIC(model)
+rsquared <- summary(model)$r.squared
+
+# Create a data frame with coefficients and p-values
+result_df <- data.frame(coef = coefficients, p_values = round(p_values, 3))
+
+# Print BIC, R-squared, and the coefficients
+cat('BIC is: ', bic, '\n')
+cat('R-squared is: ', rsquared, '\n')
+print(result_df)
+```
+```{r, warning=FALSE}
+model_reduced <- lm(y_train ~ . - INDUS - AGE, data = X_train)
+
+# Get the model coefficients and p-values
+coefficients <- coef(model_reduced)
+p_values <- summary(model_reduced)$coefficients[, "Pr(>|t|)"]
+
+# Calculate the BIC (Bayesian Information Criterion) and R-squared
+bic <- BIC(model_reduced)
+rsquared <- summary(model_reduced)$r.squared
+
+# Create a data frame with coefficients and p-values
+result_df <- data.frame(coef = coefficients, p_value = round(p_values, 3))
+
+# Print BIC, R-squared, and the coefficients
+cat('BIC is: ', bic, '\n')
+cat('R-squared is: ', rsquared, '\n')
+print(result_df)
+```
+# Residuals and Residual Plots
+```{r, warning=FALSE}
+
+data <- read.csv("boston.csv")  # Replace with your dataset
+
+# Convert "PRICE" to a numeric variable
+data$PRICE <- as.numeric(data$MEDV)
+
+# Log-transform the target variable
+data$PRICE <- log(data$PRICE)
+
+# Remove 'INDUS' and 'AGE' columns
+data <- data %>%
+  select(-INDUS, -AGE, -MEDV, id)
+
+# Split the data into training and testing sets
+set.seed(10)  # For reproducibility
+sample_index <- sample(1:nrow(data), nrow(data) * 0.8)
+train_data <- data[sample_index, ]
+test_data <- data[-sample_index, ]
+
+# Fit a linear regression model
+model <- lm(PRICE ~ ., data = train_data)
+
+# Predictions
+fitted_values <- predict(model, newdata = test_data)
+
+# Calculate residuals
+residuals <- test_data$PRICE - fitted_values
+
+# Plot Actual vs. Predicted Prices
+ggplot(data = test_data, aes(x = fitted_values, y = residuals)) +
+  geom_point(color = "navy", alpha = 0.6) +
+  labs(
+    x = "Predicted Log Prices $\\hat{y}_i$",
+    y = "Residuals",
+    title = "Residuals vs Fitted Values"
+  )
+
+# Calculate MSE and R-squared
+mse <- mean(residuals^2)
+rsquared <- 1 - (sum(residuals^2) / sum((test_data$PRICE - mean(test_data$PRICE))^2))
+
+print(paste("Mean Squared Error:", round(mse, 3)))
+print(paste("R-squared:", round(rsquared, 3)))
+
+```
+```{r, warning=FALSE}
+# Log-transform the target variable
+data$PRICE <- log(data$PRICE)
+
+# Remove specified columns
+#data <- data %>%
+  #select(-INDUS, -AGE, -LSTAT, -RM, -NOX, -CRIM)
+
+# Split the data into training and testing sets
+set.seed(10)  # For reproducibility
+sample_index <- sample(1:nrow(data), nrow(data) * 0.8)
+train_data <- data[sample_index, ]
+test_data <- data[-sample_index, ]
+
+# Fit a linear regression model
+model <- lm(PRICE ~ ., data = train_data)
+
+# Predictions
+fitted_values <- predict(model, newdata = test_data)
+
+# Calculate residuals
+residuals <- test_data$PRICE - fitted_values
+
+# Plot Actual vs. Predicted Prices
+ggplot(data = test_data, aes(x = PRICE, y = fitted_values)) +
+  geom_point(color = "navy", alpha = 0.6) +
+  geom_abline(intercept = 0, slope = 1, color = "cyan") +
+  labs(
+    x = "Actual Log prices $y_i$",
+    y = "Predicted Log Prices $\\hat{y}_i$",
+    title = paste("Actual vs Predicted Log Prices (Corr:", round(cor(test_data$PRICE, fitted_values), 2), ")"
+  )
+  )
+
+# Plot Residuals vs. Predicted Values
+ggplot(data = test_data, aes(x = fitted_values, y = residuals)) +
+  geom_point(color = "navy", alpha = 0.6) +
+  labs(
+    x = "Predicted Log Prices $\\hat{y}_i$",
+    y = "Residuals",
+    title = "Residuals vs Fitted Values"
+  )
+
+# Calculate MSE and R-squared
+mse <- mean(residuals^2)
+rsquared <- 1 - (sum(residuals^2) / sum((test_data$PRICE - mean(test_data$PRICE))^2))
+
+print(paste("Mean Squared Error:", round(mse, 3)))
+print(paste("R-squared:", round(rsquared, 3)))
+
+```
+```{r, warning=FALSE}
+model <- lm(PRICE ~ ., data = train_data)
+
+# Predictions
+fitted_values <- predict(model, newdata = test_data)
+
+# Calculate residuals
+residuals <- test_data$PRICE - fitted_values
+
+# Calculate Mean Squared Error (MSE)
+mse <- mean(residuals^2)
+
+# Calculate R-squared
+rsquared <- 1 - (sum(residuals^2) / sum((test_data$PRICE - mean(test_data$PRICE))^2))
+
+# Round the values to three decimal places
+reduced_log_mse <- round(mse, 3)
+reduced_log_rsquared <- round(rsquared, 3)
+
+# Fit a linear regression model with all features
+model_full <- lm(PRICE ~ ., data = train_data)
+
+# Predictions
+fitted_values_full <- predict(model_full, newdata = test_data)
+
+# Calculate residuals
+residuals_full <- test_data$PRICE - fitted_values_full
+
+# Calculate Mean Squared Error (MSE)
+mse_full_normal <- mean(residuals_full^2)
+
+# Calculate R-squared
+rsquared_full_normal <- 1 - (sum(residuals_full^2) / sum((test_data$PRICE - mean(test_data$PRICE))^2))
+
+# Round the values to three decimal places
+full_normal_mse <- round(mse_full_normal, 3)
+full_normal_rsquared <- round(rsquared_full_normal, 3)
+
+model_omitted <- lm(PRICE ~ ., data = train_data)
+
+# Predictions
+fitted_values_omitted <- predict(model_omitted, newdata = test_data)
+
+# Calculate residuals
+residuals_omitted <- test_data$PRICE - fitted_values_omitted
+
+# Calculate Mean Squared Error (MSE)
+mse_omitted_var <- mean(residuals_omitted^2)
+
+# Calculate R-squared
+rsquared_omitted_var <- 1 - (sum(residuals_omitted^2) / sum((test_data$PRICE - mean(test_data$PRICE))^2))
+
+# Round the values to three decimal places
+omitted_var_mse <- round(mse_omitted_var, 3)
+omitted_var_rsquared <- round(rsquared_omitted_var, 3)
+
+results_df <- data.frame(
+  'R-Square' = c(reduced_log_rsquared, full_normal_rsquared, omitted_var_rsquared),
+  'Mean Squared Error' = c(reduced_log_mse, full_normal_mse, omitted_var_mse),
+  'RMSE' = sqrt(c(reduced_log_mse, full_normal_mse, omitted_var_mse)),
+  row.names = c("Reduced Log Model", "Normal Price Model", "Omitted Var Model")
+)
+
+# Print the data frame
+print(results_df)
+```
+```{r, warning=FALSE}
+upper_limit <- log(30) + 2 * sqrt(reduced_log_mse)
+lower_limit <- log(30) - 2 * sqrt(reduced_log_mse)
+```
+# Conclusion 
+- By using the predictions acquired by applying some machine learning techniques, I made a whole new r script which can predict the recent prices in Boston from the given dataset.
+
+# Final Prediction Model 
+```{r, warning=FALSE}
+get_dollar_estimate(6,12,TRUE)
+get_dollar_estimate(8,15,FALSE)
+```
+# My predictions were mere try to predict the values, the real property prices wmight differ from this
